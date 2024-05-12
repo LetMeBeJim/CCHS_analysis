@@ -1,0 +1,241 @@
+```{r}
+install.packages("dplyr")
+```
+
+```{r}
+library(dplyr)
+```
+
+```{r}
+cchs <- read.csv("cchs.csv")
+```
+
+```{r}
+install.packages("ggplot2")
+install.packages("GGally")
+
+library(ggplot2)
+library(GGally)
+```
+
+Analysis on perceived stress versus hours of sleep for people aged 18-24.
+
+Todo:
+
+1.  filter on age, on people who participated in survey
+2.  Recategorize some variables like stress to "high risk" or "low risk", recategorize perceived mental health to "high risk" or "low risk", leaving the other variables as is
+3.  Perform confounding analysis, add both confounders in the regression model
+
+Filter data based on criteria:
+
+DOSLP: people who participated in sleep survey
+
+DHHGAGE: only people ages 18-24
+
+```{r}
+filtered_data <- cchs %>%
+  filter(DOSLP != 2, DHHGAGE %in% c(3, 4), FSCDVAFS != 9)
+         
+```
+
+```{r}
+filtered_data <- filtered_data %>%
+  select(GEN_015, SLPG005, GEN_020, INCDGPER, EHG2DVR3, GEN_005, FSCDVAFS)
+```
+
+```{r}
+ggpairs(filtered_data)
+```
+
+```{r}
+filtered_data <- filtered_data %>%
+  filter(!GEN_015 %in% c(7, 8, 9))
+```
+
+```{r}
+filtered_data <- filtered_data %>%
+  filter(SLPG005 <= 10)
+```
+
+```{r}
+filtered_data <- filtered_data %>%
+  filter(!GEN_020 %in% c(7, 8))
+```
+
+```{r}
+filtered_data <- filtered_data %>% 
+  filter(INCDGPER <= 10)
+```
+
+```{r}
+filtered_data <- filtered_data %>%
+  filter(EHG2DVR3 <= 5)
+```
+
+```{r}
+filtered_data <- filtered_data %>%
+  filter(!is.na(GEN_005), !GEN_005 %in% c(7, 8))
+```
+
+```{r}
+ggpairs(filtered_data)
+```
+
+
+Convert data to format desired:
+
+GEN_015: 0 is low risk, 1 is high risk (1, 2 is excellent, very good)
+
+GEN_020, 0 is low stress, 1 is high stress
+
+GEN_005: 0 is low risk, 1 is high risk
+
+```{r}
+mutated_data <- filtered_data %>%
+  mutate(
+    GEN_015 = case_when(GEN_015 %in% c(1, 2) ~ 0, TRUE ~ 1),
+    SLPG005 = case_when(SLPG005 < 6 ~ 0, SLPG005 %in% c(6, 7) ~ 1, SLPG005 > 7 ~ 2),
+    GEN_020 = case_when(GEN_020 %in% c(1, 2, 3) ~ 0, GEN_020 %in% c(4, 5) ~ 1),
+    GEN_005 = case_when(GEN_005 %in% c(1, 2) ~ 0, GEN_005 %in% c(3, 4, 5) ~ 1)
+  )
+```
+
+
+Analysis:
+
+```{r}
+summary(filtered_data)
+
+filtered_data %>%
+  select_if(is.factor)
+```
+
+```{r}
+contingency_table <- table(mutated_data$GEN_015, mutated_data$SLPG005)
+print(contingency_table)
+
+```
+
+```{r}
+chi_square_test <- chisq.test(mutated_data$GEN_015, mutated_data$SLPG005)
+print(chi_square_test)
+```
+
+```{r}
+contingency_table2 <- table(mutated_data$GEN_015, mutated_data$GEN_020)
+```
+
+```{r}
+print(contingency_table2)
+```
+
+```{r}
+chi_square_test2 <- chisq.test(mutated_data$GEN_015, mutated_data$GEN_020)
+print(chi_square_test2)
+```
+
+```{r}
+chi_square_test3 <- chisq.test(mutated_data$GEN_015, mutated_data$INCDGPER)
+print(chi_square_test3)
+```
+
+```{r}
+chi_square_test4 <- chisq.test(mutated_data$GEN_015, mutated_data$EHG2DVR3)
+print(chi_square_test4)
+```
+```{r}
+chi_square_test5 <- chisq.test(mutated_data$GEN_015, mutated_data$GEN_005)
+print(chi_square_test5)
+```
+```{r}
+chi_square_test6 <- chisq.test(mutated_data$GEN_015, mutated_data$FSCDVAFS)
+print(chi_square_test6)
+```
+
+Multivariable analysis:
+
+```{r}
+library(stats)
+```
+
+```{r}
+mutated_data$GEN_015 <- factor(mutated_data$GEN_015)
+mutated_data$GEN_015 <- factor(mutated_data$GEN_005)
+mutated_data$SLPG005 <- factor(mutated_data$SLPG005)
+mutated_data$GEN_020 <- factor(mutated_data$GEN_020)
+mutated_data$INCDGPER <- factor(mutated_data$INCDGPER)
+mutated_data$EHG2DVR3 <- factor(mutated_data$EHG2DVR3)
+
+mutated_data$FSCDVAFS <- factor(mutated_data$FSCDVAFS)
+```
+
+```{r}
+model <- glm(GEN_015 ~ SLPG005 + GEN_020 + INCDGPER + EHG2DVR3 + FSCDVAFS, data = mutated_data, family = binomial())
+
+```
+
+```{r}
+summary(model)
+exp(coef(model))
+```
+
+
+```{r}
+coefficients <- coef(model)
+std_errors <- sqrt(diag(vcov(model)))
+
+# Calculate the confidence intervals
+z_value <- qnorm(1 - (0.05 / 2))  # for 95% CI; adjust accordingly for other levels
+lower_bounds <- coefficients - z_value * std_errors
+upper_bounds <- coefficients + z_value * std_errors
+
+# Convert to odds ratios and their confidence intervals
+or <- exp(coefficients)
+ci_lower <- exp(lower_bounds)
+ci_upper <- exp(upper_bounds)
+
+# Combine into a matrix or data frame for easier viewing
+ci_matrix <- cbind(or, ci_lower, ci_upper)
+colnames(ci_matrix) <- c("Odds Ratio", "Lower CI", "Upper CI")
+
+# Print the matrix
+print(ci_matrix)
+```
+
+Logistical Regression result usually have:
+
+odds ratio: predicting odds of having bad mental health
+
+estimate: coefficient: how much log odds of the dependent variable are expected to increase or decrease with a one-unit increase in the predictor
+
+std. error: standard error, smaller std error is more precise
+
+z-value: determines whether the coefficient is significantly different from zero, if Z value is large, then predictor is significant
+
+p-value: small indicates model is reliable.
+
+
+```{r}
+library(nnet)
+```
+
+Confounding analysis for GEN_005
+
+```{r}
+summary(multinom(SLPG005 ~ GEN_005, data = mutated_data))
+```
+
+```{r}
+summary(glm(GEN_015 ~ GEN_005, data = mutated_data, family = binomial()))
+```
+
+Confounding analysis for GEN_020
+
+```{r}
+summary(glm(GEN_015 ~ GEN_020, data = mutated_data, family = binomial()))
+```
+
+```{r}
+write.csv(mutated_data, './data.csv', row.names = FALSE)
+```
+
